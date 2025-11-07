@@ -1,25 +1,42 @@
-using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
+
+public enum RotationAxis
+{
+    Right,
+    Forward
+}
 
 public class Capsule : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 {
     public int pushDirection = 0;
-    private float rotationSpeed = 20;
     private float pushImpact = 30;
     public GameObject predecessor;
     private Capsule predecessorCapsule;
-    private float followSpeed = 10f;
     public int segmentIndex;
-    public Vector3 lastStablePosition;
-    public Quaternion lastStableLocalRotation;
     public Rigidbody ownRigibody;
-
-    private Quaternion localRotation;
+    public RotationAxis rotationAxis;
+    private float localAngle = 0;
+    public float LocalAngle { 
+        get { return localAngle; }
+        set {
+            if (value < -90)
+            {
+                localAngle = -90;
+            }
+            else if (value > 90)
+            {
+                localAngle = 90;
+            }
+            else
+            {
+                localAngle = value;
+            }
+        }
+    }
 
     void Start()
     {
-        localRotation = Quaternion.identity;
         if (predecessor != null)
         {
             predecessorCapsule = predecessor.GetComponent<Capsule>();
@@ -29,43 +46,40 @@ public class Capsule : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     void FixedUpdate()
     {
-        if (!InitScene.hasCollided)
-        {
-            lastStablePosition = transform.position;
-            lastStableLocalRotation = localRotation;
-        }
         HandleRotation();
         HandlePosition();
     }
 
-    private void HandleRotation()
+    public void HandleRotation()
     {
+        Vector3 axis = transform.position;
+        switch (rotationAxis)
+        {
+            case RotationAxis.Right:
+                axis = Vector3.forward;
+                break;
+            case RotationAxis.Forward:
+                axis = Vector3.right;
+                break;
+        }
         if (pushDirection != 0)
         {
-            Vector3 directionToObject = transform.position - Camera.main.transform.position;
-            Vector3 perpendicular = Vector3.Cross(directionToObject, Vector3.up).normalized;
-            float angle = pushImpact * pushDirection * Time.deltaTime;
-            Quaternion rotationIncrement = Quaternion.AngleAxis(angle, perpendicular);
-            localRotation = rotationIncrement * localRotation;
+            LocalAngle += pushImpact * pushDirection * Time.deltaTime;
         }
-        Quaternion targetRotation = localRotation;
+        Quaternion targetRotation = Quaternion.AngleAxis(LocalAngle, axis);
         if (predecessor != null)
         {
-            targetRotation = localRotation * predecessor.transform.rotation;
+            targetRotation = targetRotation * predecessor.transform.rotation;
         }
-        ownRigibody.MoveRotation(Quaternion.RotateTowards(
-            transform.rotation,
-            targetRotation,
-            rotationSpeed * Time.deltaTime
-        ));
+        transform.rotation = targetRotation;
     }
 
-    private void HandlePosition()
+    public void HandlePosition()
     {
         if (predecessorCapsule != null)
         {
-            Vector3 targetPosition = predecessorCapsule.ownRigibody.position + (predecessor.transform.up * InitScene.height);
-            ownRigibody.MovePosition(Vector3.Lerp(ownRigibody.position, targetPosition, followSpeed * Time.deltaTime));
+            Vector3 targetPosition = predecessor.transform.position + (predecessor.transform.up * InitScene.height);
+            transform.position = targetPosition;
         }
     }
     // Detect collisions with other segments
@@ -82,27 +96,10 @@ public class Capsule : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
                 pushDirection = 1;
                 break;
         }
-        if (InitScene.hasCollided)
-        {
-            pushDirection = 0;
-        }
     }
 
     public void OnPointerUp(PointerEventData pointerEventData)
     {
         pushDirection = 0;
-    }
-
-    void OnCollisionEnter(Collision collision)
-    {
-        InitScene.hasCollided = true;
-        // Reset ALL segments to last stable state ONCE
-        foreach (var s in InitScene.segments)
-        {
-            s.pushDirection = 0;
-            s.ownRigibody.MovePosition(s.lastStablePosition);
-            s.localRotation = s.lastStableLocalRotation;
-        }
-        InitScene.hasCollided = false;
     }
 }
